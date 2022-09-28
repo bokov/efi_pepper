@@ -1,3 +1,4 @@
+library(tidyr);
 library(dplyr);
 library(DBI);
 library(rio);     # format-agnostic convenient file import
@@ -23,7 +24,7 @@ if(digest::digest(inputdata['fullsqlfile'],file=T)!="6a16692a07c116e1559b09cbe0b
 
 fullsql <- file.path(tempdir,'fullsql.db');
 if(!file.exists(fullsql) || digest::digest(fullsql,file=T) != "6a16692a07c116e1559b09cbe0b92268"){
-  file.copy(inputdata['fullsqlfile'],fullsql<-file.path(tempdir,'fullsql.db'))};
+  file.copy(inputdata['fullsqlfile'],fullsql<-file.path(tempdir,'fullsql.db'),overwrite = T)};
 fullsqlcon <- dbConnect(RSQLite::SQLite(), fullsql);
 
 .drugnames <- list(
@@ -97,7 +98,8 @@ dat1$CohortFactor <- ungroup(dat1) %>% select(starts_with('temp_Cohort_')) %>%
   interaction(drop=T,sep='+') %>%
   fct_relabel(~gsub('\\++','+',.x) %>% gsub('^\\+|\\+$','',.));
 dat1 <- select(dat1,!starts_with('temp_Cohort_'));
-CohortDetail <- ungroup(dat1) %>% select(starts_with('temp_')) %>%
+CohortDetail <- ungroup(dat1) %>%
+  select(starts_with('temp_') & !matches('Glinides|Sulfonylureas')) %>%
   interaction(drop=T,sep='+') %>%
   fct_relabel(~gsub('\\++','+',.x) %>% gsub('^\\+|\\+$','',.));
 dat1$CohortDetail <- ifelse(dat1$CohortFactor=='Cohort_Other'
@@ -106,7 +108,7 @@ dat1$CohortDetail <- ifelse(dat1$CohortFactor=='Cohort_Other'
 dat1 <- select(dat1,!starts_with('temp_'));
 
 # start
-dat2 <- select(gludrugs,any_of(c('patient_num','CohortFactor'
+dat2 <- select(dat1,any_of(c('patient_num','CohortFactor'
                                           ,'start_date',cDrugGroups,'None'))) %>%
   # these steps are to organize the data by patient, drug-group, and contiguous
   # sequence of encounters during which they were prescribed drugs from that
