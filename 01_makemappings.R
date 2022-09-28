@@ -32,7 +32,7 @@ deid_patdate <- dbGetQuery(fullsqlcon
                            ,'SELECT DISTINCT patient_num,start_date FROM observation_fact') %>%
   mutate(patient_num=as.character(patient_num)
          ,start_date=as.Date(start_date)) %>% unique;
-
+#' ## Hemoglobin HbA1c labs
 deid_hba1c <- dbGetQuery(fullsqlcon
                          ,'SELECT encounter_num,patient_num,concept_cd,start_date,nval_num,valueflag_cd
                            FROM observation_fact
@@ -47,6 +47,14 @@ deid_hba1c <- dbGetQuery(fullsqlcon
             ,maxhba1c=max(nval_num,na.rm=T)
             ,vfhba1c=paste0(setdiff(valueflag_cd,'@'),collapse=';')) %>%
   arrange(patient_num,start_date);
+
+#' ## Patients who were getting primary care in-system
+pcvisquery <- paste0('concept_cd LIKE "%SPEC:',c(7,9,17,81,84,183),'%"'
+                  ,collapse=' OR ') %>%
+  paste('SELECT DISTINCT patient_num,DATE(start_date,"start of year") yr
+         FROM observation_fact WHERE ',.);
+deid_pcvis <- dbGetQuery(fullsqlcon,pcvisquery);
+
 #' Import the patmap and EFI
 id_efidate <- import(inputdata['efi']) %>% mutate(MON=as.Date(MON));
 id_patmap <- import(inputdata['patmap']) %>%
@@ -70,6 +78,7 @@ xwalk_patdateefi2 <- subset(xwalk_patdateefi1,PATIENT_IDE %in% .patmonthinrange$
 consort_counts$pat_allefioor <- list(deid=setdiff(xwalk_patdateefi1$patient_num,xwalk_patdateefi2$patient_num));
 consort_counts$pat_allefioor$days <- nrow(xwalk_patdateefi1)-nrow(xwalk_patdateefi2);
 # only the visits where EFIs are available
+# TODO: check if there are gaps small enough that we can roll them in
 xwalk_patdateefi3 <- inner_join(xwalk_patdateefi2,id_efidate,by=c('PATIENT_IDE'='PAT_ID','monthkey'='MON'));
 consort_counts$pat_someefioor <- list(days=nrow(xwalk_patdateefi2)-nrow(xwalk_patdateefi3));
 
