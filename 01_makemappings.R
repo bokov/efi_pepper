@@ -4,6 +4,8 @@ library(rio);     # format-agnostic convenient file import
 library(dint);    # date-conversion
 library(digest);
 
+options(datatable.integer64='numeric');
+
 source('default_config.R');
 #' The local path names for the data files should be stored in a vector
 #' named `inputdata` that gets set in a script named `local_config.R`
