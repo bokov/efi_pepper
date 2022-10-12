@@ -6,6 +6,8 @@ library(dint);    # date-conversion
 library(digest);
 library(forcats);
 
+options(datatable.integer64='numeric');
+
 # runtime duration: 11:22
 
 source('default_config.R');
@@ -53,105 +55,101 @@ fullsqlcon <- dbConnect(RSQLite::SQLite(), fullsql);
   UNION ALL
   SELECT date(date, '+1 month')
   FROM dates
-  WHERE date <= '2021-12-01'
+  WHERE date <= '2022-12-01'
 )
 -- the first and last month for each patient, so we don't have a lot of empty
 -- months at either end
+,obs AS (
+  SELECT DISTINCT -- 37,914,003 vs 42,618,747
+    observation_fact.patient_num,concept_cd,sourcesystem_cd
+    ,start_date start_date_orig ,COALESCE(end_date,start_date) end_date_orig
+    ,DATE(DATE(start_date,-DATE_SHIFT||' days'),'start of month') start_date
+    ,DATE(DATE(COALESCE(end_date,start_date),-DATE_SHIFT||' days'),'start of month') end_date
+    ,DATE_SHIFT,PATIENT_IDE_UPDATED,PAT_MRN_ID
+  FROM observation_fact
+  INNER JOIN xwalk
+  ON observation_fact.patient_num = xwalk.PATIENT_NUM
+)
 ,q0 AS (
-  SELECT DISTINCT patient_num
-    ,DATE(MIN(start_date),'start of month') dfrom
-    ,DATE(MAX(COALESCE(end_date,start_date)),'start of month') dto
-  FROM observation_fact GROUP BY patient_num
+  SELECT patient_num
+    ,MIN(start_date) dfrom
+    ,MAX(end_date) dto
+    ,DATE_SHIFT,PATIENT_IDE_UPDATED,PAT_MRN_ID
+  FROM obs GROUP BY patient_num
 )
 -- all included months for all patients
 ,q1 AS (
-  SELECT q0.patient_num,dates.date
+  SELECT q0.patient_num,dates.date,DATE_SHIFT,PATIENT_IDE_UPDATED,PAT_MRN_ID
   FROM q0 INNER JOIN dates ON dates.date BETWEEN q0.dfrom AND q0.dto
 )
 -- unique combos of patients, start/end dates, drug codes, and meds
 -- where the meds are the antihyperglycemic drugs of interest
 ,q2 AS (
   SELECT DISTINCT patient_num
-    ,DATE(start_date,'start of month') start_date
-    ,DATE(COALESCE(end_date,start_date),'start of month') end_date
-    ,ob.concept_cd,cd.name_char
-  FROM observation_fact ob
+    ,start_date
+    ,end_date
+    ,obs.concept_cd,cd.name_char,obs.sourcesystem_cd
+  FROM obs
   INNER JOIN concept_dimension cd
-      ON ob.concept_cd = cd.concept_cd
+      ON obs.concept_cd = cd.concept_cd
       AND (cd.concept_cd LIKE 'NDC:%%' OR cd.concept_cd LIKE 'RXCUI:%%')
-      AND (%s)
+      AND ( %s )
 )
-,q3 AS (
-  SELECT DISTINCT patient_num,DATE(start_date,'start of month') start_date
-  FROM observation_fact WHERE  %s
+-- primary care visits
+,qv0 AS (
+  SELECT DISTINCT patient_num,start_date
+  FROM obs WHERE  %s
 )
 -- collapse down to unique patient-months and for each patient-month concatenate
 -- all unique drug codes and names
-,q4 AS (
-  SELECT q1.patient_num,q1.date
+,q3 AS (
+  SELECT q1.patient_num,q1.date start_date
   ,REPLACE(GROUP_CONCAT(DISTINCT concept_cd),',','; ') concept_cds
   -- because name_chars can have embedded commas
   ,REPLACE(REPLACE(GROUP_CONCAT(DISTINCT REPLACE(name_char,',','=')),',','; '),'=',',') name_chars
   -- time elapsed since last visit
-  ,ROUND((JULIANDAY(date) - JULIANDAY(MAX(q3.start_date)))/(365/12)) months_since_pcvisit
-  FROM q1
-  LEFT JOIN q2
+  ,ROUND((JULIANDAY(q1.date) - JULIANDAY(MAX(qv0.start_date)))/(365/12)) months_since_pcvisit
+  ,MAX(q1.DATE_SHIFT) DATE_SHIFT
+  ,MAX(PATIENT_IDE_UPDATED) PATIENT_IDE_UPDATED
+  ,MAX(PAT_MRN_ID) PAT_MRN_ID
+  ,SUM(CASE sourcesystem_cd WHEN 'Sunrise@UHS' THEN 1 ELSE 0 END) N_UHS_Records
+  ,SUM(CASE sourcesystem_cd WHEN 'Clarity@UTMed' THEN 1 ELSE 0 END) N_UTMed_Records
+  FROM q1 LEFT JOIN q2
   ON q1.patient_num = q2.patient_num
-    AND q1.date BETWEEN q2.start_date AND q2.end_date
-  LEFT JOIN q3
-  ON q1.patient_num = q3.patient_num
-    AND q3.start_date <= q1.date
+  AND q1.date BETWEEN q2.start_date AND q2.end_date
+  LEFT JOIN qv0
+  ON q1.patient_num = qv0.patient_num AND qv0.start_date <= q1.date
   GROUP BY q1.patient_num,q1.date
 )
 -- finally, a pivot table of drug categories vs patient-months
 -- with a column for None and columns for all unique codes/meds for that patient-month
 -- (from above)
-SELECT patient_num,date
-%s
-, concept_cds
-, name_chars
-, months_since_pcvisit
-FROM q4
-;";
+SELECT patient_num,PAT_MRN_ID,start_date
+  ,N_UHS_Records,N_UTMed_Records
+  ,DATE(DATE(start_date,DATE_SHIFT||' days'),'start of month') shifted_date
+  %s
+  , concept_cds
+  , name_chars
+  , months_since_pcvisit
+  , DATE_SHIFT,PATIENT_IDE_UPDATED
+FROM q3
+";
 .drugsql <- sprintf(.drugsqltemplate,.drugrows,.pcviscodes,.druggroups);
-
-# #.drugwhere <- .drugnames %>% sapply(function(xx) sprintf(' name_char LIKE "%%%s%%" ',xx) %>% paste0(collapse='OR'));
-# .drugsql <- .drugnames %>% unlist %>% sprintf(' name_char LIKE "%%%s%%" ',.) %>% paste0(collapse = 'OR') %>%
-#   paste0('
-# WITH q0 AS (
-#   SELECT DISTINCT patient_num,cd.concept_cd
-#     ,DATE(start_date,"start of month") start_date
-#     ,DATE(COALESCE(end_date,start_date),"start of month") end_date,cd.name_char
-#   FROM observation_fact ob
-#   LEFT JOIN concept_dimension cd
-#     ON ob.concept_cd = cd.concept_cd
-#     AND (cd.concept_cd LIKE "NDC:%" OR cd.concept_cd LIKE "RXCUI:%")
-#     AND (',.,'))
-# SELECT q0.patient_num,q1.concept_cd,q0.start_date,q1.name_char
-# FROM q0 LEFT JOIN q0 q1
-#   ON q0.patient_num = q1.patient_num
-#   AND q0.start_date BETWEEN q1.start_date AND q1.end_date
-#   AND q1.name_char IS NOT NULL
-#          ');
-
-.drugcols <- c(paste0('Cohort_',c(paste0(cDrugGroupsMain,'Mono'),'None','Other')),cDrugGroups);
-.drugregexps <- sapply(.drugnames,paste0,collapse='|');
-
-# Local function to avoid a lot of repetitive code when searching for strings in a column
-hasString <- function(xx) substitute(any(grepl(.drugregexps[xx],name_char,ignore.case=T)));
 
 # All glucose-lowering drug ocurrences
 id_patmap <- import(inputdata['patmap']) %>%
-  mutate(patient_num=as.character(PATIENT_NUM)) %>%
-  select(patient_num,PAT_MRN_ID,DATE_SHIFT,PATIENT_IDE_UPDATED) %>% unique;
+  mutate(across(any_of(c('PATIENT_NUM','PAT_MRN_ID')),as.character)) %>%
+  select(PATIENT_NUM,PAT_MRN_ID,DATE_SHIFT,PATIENT_IDE_UPDATED) %>% unique;
 
+dbWriteTable(fullsqlcon,'xwalk',id_patmap
+             #,unique(import(inputdata['patmap'])[,c('PATIENT_NUM','DATE_SHIFT','PATIENT_IDE_UPDATED','PAT_MRN_ID')])
+             ,overwrite=T);
 dat0 <- dbGetQuery(fullsqlcon,.drugsql) %>%
-  mutate(patient_num=as.character(patient_num),date=as.Date(date)) %>%
-  group_by(patient_num,date);
-dbDisconnect(fullsqlcon);
-# dat0a <- mutate(dat0,patient_num=as.character(patient_num),start_date=as.Date(start_date)) %>%
-#   group_by(patient_num,start_date);
-
+  mutate(across(any_of(c('patient_num','PAT_MRN_ID')),as.character)
+         ,across(ends_with('_date'),as.Date)) %>%
+  group_by(patient_num,start_date) %>% arrange(PAT_MRN_ID,start_date);
+#dbExecute(fullsqlcon,'DROP TABLE xwalk');
+#dbDisconnect(fullsqlcon);
 
 # patient history, can be joined to main data
 dat1 <- mutate(dat0
@@ -163,11 +161,37 @@ dat1 <- mutate(dat0
                ,MonthFactor = paste(Secretagogues,Metformin,AnyOther,None,sep='+') %>%
                  gsub('[+]+','+',.) %>% gsub('^[+]|[+]$','',.)
 ) %>%
-  ungroup(date) %>%
+  ungroup(start_date) %>%
   mutate(CohortDetail=if(all(MonthFactor=='None')) 'None' else {
     paste0(sort(setdiff(MonthFactor,'None')),collapse=';')}
-    ,CohortFactor=if(any(grepl(';',CohortDetail))) 'Multi' else CohortDetail);
+    ,CohortFactor=if(any(grepl(';',CohortDetail))) 'Multi' else CohortDetail) %>%
+  arrange(PAT_MRN_ID,start_date);
 
+uniform_periods <- with(dat1,rle(paste0(PAT_MRN_ID,':',MonthFactor)));
+uniform_periods$values <- seq_along(uniform_periods$values);
+dat1$rownumber <- inverse.rle(uniform_periods);
+
+dat2<-group_by(dat1,rownumber,PAT_MRN_ID,MonthFactor) %>%
+  summarise(from_date=min(start_date),to_date=max(start_date)
+            ,min_since_pc=min(months_since_pcvisit)
+            ,max_since_pc=max(months_since_pcvisit)
+            ,Metformin=any(Metformin!=''),Secretagogues=any(Secretagogues!='')
+            ,SGLT2I=any(SGLT2I!=''),DDP4I=any(DDP4I!=''),GPL1A=any(GLP1A!='')
+            ,TZD=any(TZD!=''),None=all(None!='')
+            ,name_chars=paste0(unique(name_chars),collapse=';')
+            ,concept_cds=paste0(unique(concept_cds),collapse=';')
+            ,CohortFactor=max(CohortFactor)
+            ,CohortDetail=max(CohortDetail)
+            ,patient_num=paste0(unique(patient_num),collapse=';')
+            ,PATIENT_IDE_UPDATED=max(PATIENT_IDE_UPDATED)
+            ,DATE_SHIFT=paste0(unique(DATE_SHIFT),collapse=';')
+            );
+
+# TODO: make the long-form version of dat2 (i.e. no aggregation, just
+#       rearranging the columns in the above order)
+# TODO: make the deid version of dat1, for direct incorporation into the
+#       analysis
+# TODO: export the long and short-form versions of dat2, export the deid version
 # #nrow(subset(dat1,CohortFactor=='Metformin' & paste0()))
 #
 # # check for uniqueness of patient_num,CohortDetail,CohortFactor
@@ -184,63 +208,62 @@ dat1 <- mutate(dat0
 #       'Cohort_Other'} else ''
 #       );
 
-# TODO: paused here.
-dat1 <- summarise(dat0a
-                  ,Glinides=eval(hasString('Glinides'))
-                  ,SGLT2I=eval(hasString('SGLT2I'))
-                  ,DDP4I=eval(hasString('DDP4I'))
-                  ,GLP1A=eval(hasString('GLP1A'))
-                  ,TZD=eval(hasString('TZD'))
-                  ,Metformin=eval(hasString('Metformin'))
-                  ,Sulfonylureas=eval(hasString('Sulfonylureas'))
-                  ,Secretagogues=Sulfonylureas|Glinides
-                  ,AnyOther=SGLT2I|DDP4I|GLP1A|TZD
-                  ,Secretagogues_Mono=Secretagogues & !AnyOther & !Metformin
-                  ,Metformin_Mono=Metformin & !AnyOther & !Secretagogues
-                  ,None=!Metformin & !Secretagogues & !AnyOther
-) %>% ungroup(start_date) %>%
-  mutate(Cohort_None=all(None)
-         ,Cohort_MetforminMono=any(Metformin_Mono)&all(None|Metformin_Mono)
-         ,Cohort_SecretagoguesMono=any(Secretagogues_Mono)&all(None|Secretagogues_Mono)
-         ,Cohort_Other=!(Cohort_MetforminMono|Cohort_SecretagoguesMono|Cohort_None)
-         ,across(any_of(.drugcols),~ifelse(.x,cur_column(),''),.names = 'temp_{.col}')
-#         ,across(starts_with('Cohort_'),~ifelse(.x,cur_column(),''),.names = 'temp_{.col}')
-  );
-dat1$CohortFactor <- ungroup(dat1) %>% select(starts_with('temp_Cohort_')) %>%
-  interaction(drop=T,sep='+') %>%
-  fct_relabel(~gsub('\\++','+',.x) %>% gsub('^\\+|\\+$','',.));
-dat1 <- select(dat1,!starts_with('temp_Cohort_'));
-CohortDetail <- ungroup(dat1) %>%
-  select(starts_with('temp_') & !matches('Glinides|Sulfonylureas')) %>%
-  interaction(drop=T,sep='+') %>%
-  fct_relabel(~gsub('\\++','+',.x) %>% gsub('^\\+|\\+$','',.));
-dat1$CohortDetail <- ifelse(dat1$CohortFactor=='Cohort_Other'
-                            ,as.character(CohortDetail)
-                            ,as.character(dat1$CohortFactor));
-dat1 <- select(dat1,!starts_with('temp_'));
-
-# start
-dat2 <- select(dat1,any_of(c('patient_num','CohortFactor'
-                                          ,'start_date',cDrugGroups,'None'))) %>%
-  # these steps are to organize the data by patient, drug-group, and contiguous
-  # sequence of encounters during which they were prescribed drugs from that
-  # group
-  pivot_longer(cols=any_of(c(cDrugGroups,'None'))
-               ,names_to='Drug',values_to='Active') %>%
-  group_by(patient_num,CohortFactor,Drug) %>% arrange(start_date) %>%
-  mutate(interval=with(rle(Active),rep(seq_along(lengths),lengths))) %>% # 24030610 rows
-  subset(Active) %>%                                                     #  3596758 rows
-  group_by(interval,.add=T) %>%
-  summarize(FromDate=min(start_date),ToDate=max(start_date)) %>%
-  # merging in MRNs and date-shifts to enable chart review
-  left_join(id_patmap) %>%
-  # mutate(FromDate=FromDate+DATE_SHIFT,ToDate=ToDate+DATE_SHIFT) %>%
-  # now, cleaning up for readability
-  select(-c('interval','DATE_SHIFT')) %>%
-  arrange(patient_num,FromDate) %>%
-  mutate(CohortFactor=gsub('Cohort_','',CohortFactor)) %>%
-  rename(Cohort=CohortFactor) %>%
-  relocate(PAT_MRN_ID,Drug,FromDate,ToDate,Cohort);
+# dat1 <- summarise(dat0a
+#                   ,Glinides=eval(hasString('Glinides'))
+#                   ,SGLT2I=eval(hasString('SGLT2I'))
+#                   ,DDP4I=eval(hasString('DDP4I'))
+#                   ,GLP1A=eval(hasString('GLP1A'))
+#                   ,TZD=eval(hasString('TZD'))
+#                   ,Metformin=eval(hasString('Metformin'))
+#                   ,Sulfonylureas=eval(hasString('Sulfonylureas'))
+#                   ,Secretagogues=Sulfonylureas|Glinides
+#                   ,AnyOther=SGLT2I|DDP4I|GLP1A|TZD
+#                   ,Secretagogues_Mono=Secretagogues & !AnyOther & !Metformin
+#                   ,Metformin_Mono=Metformin & !AnyOther & !Secretagogues
+#                   ,None=!Metformin & !Secretagogues & !AnyOther
+# ) %>% ungroup(start_date) %>%
+#   mutate(Cohort_None=all(None)
+#          ,Cohort_MetforminMono=any(Metformin_Mono)&all(None|Metformin_Mono)
+#          ,Cohort_SecretagoguesMono=any(Secretagogues_Mono)&all(None|Secretagogues_Mono)
+#          ,Cohort_Other=!(Cohort_MetforminMono|Cohort_SecretagoguesMono|Cohort_None)
+#          ,across(any_of(.drugcols),~ifelse(.x,cur_column(),''),.names = 'temp_{.col}')
+# #         ,across(starts_with('Cohort_'),~ifelse(.x,cur_column(),''),.names = 'temp_{.col}')
+#   );
+# dat1$CohortFactor <- ungroup(dat1) %>% select(starts_with('temp_Cohort_')) %>%
+#   interaction(drop=T,sep='+') %>%
+#   fct_relabel(~gsub('\\++','+',.x) %>% gsub('^\\+|\\+$','',.));
+# dat1 <- select(dat1,!starts_with('temp_Cohort_'));
+# CohortDetail <- ungroup(dat1) %>%
+#   select(starts_with('temp_') & !matches('Glinides|Sulfonylureas')) %>%
+#   interaction(drop=T,sep='+') %>%
+#   fct_relabel(~gsub('\\++','+',.x) %>% gsub('^\\+|\\+$','',.));
+# dat1$CohortDetail <- ifelse(dat1$CohortFactor=='Cohort_Other'
+#                             ,as.character(CohortDetail)
+#                             ,as.character(dat1$CohortFactor));
+# dat1 <- select(dat1,!starts_with('temp_'));
+#
+# # start
+# dat2 <- select(dat1,any_of(c('patient_num','CohortFactor'
+#                                           ,'start_date',cDrugGroups,'None'))) %>%
+#   # these steps are to organize the data by patient, drug-group, and contiguous
+#   # sequence of encounters during which they were prescribed drugs from that
+#   # group
+#   pivot_longer(cols=any_of(c(cDrugGroups,'None'))
+#                ,names_to='Drug',values_to='Active') %>%
+#   group_by(patient_num,CohortFactor,Drug) %>% arrange(start_date) %>%
+#   mutate(interval=with(rle(Active),rep(seq_along(lengths),lengths))) %>% # 24030610 rows
+#   subset(Active) %>%                                                     #  3596758 rows
+#   group_by(interval,.add=T) %>%
+#   summarize(FromDate=min(start_date),ToDate=max(start_date)) %>%
+#   # merging in MRNs and date-shifts to enable chart review
+#   left_join(id_patmap) %>%
+#   # mutate(FromDate=FromDate+DATE_SHIFT,ToDate=ToDate+DATE_SHIFT) %>%
+#   # now, cleaning up for readability
+#   select(-c('interval','DATE_SHIFT')) %>%
+#   arrange(patient_num,FromDate) %>%
+#   mutate(CohortFactor=gsub('Cohort_','',CohortFactor)) %>%
+#   rename(Cohort=CohortFactor) %>%
+#   relocate(PAT_MRN_ID,Drug,FromDate,ToDate,Cohort);
 
 
 export(dat1,file='DEID_GLUDRUGS.tsv');
