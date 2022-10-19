@@ -47,6 +47,12 @@ source('default_config.R');
 # The local path names for the data files should be stored in a vector
 # named `inputdata` that get set in a script named `local_config.R`
 if(file.exists('local_config.R')) source('local_config.R');
+#' for automated rebuilding of some or all data files, create a file named
+#' .usecachedfiles in the project folder
+if(file.exists('.usecachedfiles')){
+  inputdata <- sapply(inputdata,function(xx) if(file.exists(basename(xx))) basename(xx) else xx);
+}
+
 
 dat0 <- import(inputdata['analyzeme'],colClasses=cClasses);
 dct0 <- import(inputdata['metadata']);
@@ -76,7 +82,7 @@ head(dat0);
 #'
 #+ cohort_demog
 # cohort_demog ----
-demog0 <- group_by(dat0,patient_num,sex_cd,language_cd,race_cd) %>%
+demog0 <- group_by(dat0,patient_num,sex_cd,language_cd,CohortFactor,CohortDetail) %>%
   subset(age_at_visit_days<=coalesce(dat0$age_at_death_days,Inf) &
            age_at_visit_days >= 0 &
            start_date > birth_date & start_date > '2006-01-01') %>%
@@ -92,12 +98,12 @@ demog0 <- group_by(dat0,patient_num,sex_cd,language_cd,race_cd) %>%
             ,EncounterMonths=length(unique(as.character(dint::as_date_ym(start_date))))
             ,across(where(is.numeric) & !starts_with('age') & !starts_with('Encounter') & !starts_with('MONTH'),~na_if(min(.x,na.rm=T),Inf),.names='Min {.col}')
             ,across(where(is.numeric) & !starts_with('age') & !starts_with('Encounter') & !starts_with('MONTH') & !starts_with('Min'),~na_if(max(.x,na.rm=T),-Inf),.names='Max {.col}')
-            ,across(where(is.logical) & !any_of('None') & !contains('_Dgns_'),any),None=all(None)
-            ,Strata=interaction(ifelse(Metformin,'Metformin',''),ifelse(Secretagogues,'Secretagogues',''),ifelse(AnyOther,'Other',''),ifelse(None,'None',''),sep='+')
+            # ,across(where(is.logical) & !any_of('None') & !contains('_Dgns_'),any),None=all(None)
+            # ,Strata=interaction(ifelse(Metformin,'Metformin',''),ifelse(Secretagogues,'Secretagogues',''),ifelse(AnyOther,'Other',''),ifelse(None,'None',''),sep='+')
   ) %>% ungroup %>%
-  mutate(Language=fct_lump_n(Language,2) #,vs=ifelse(is.na(AgeAtDeath),'Living','Deceased')
-         ,Strata=as.character(Strata) %>% gsub('^[+]+|[+]+$','',.) %>% gsub('[+]{2}','+',.));
-select(demog0,-1) %>% table1(~.|Strata,data=.);
+  mutate(Language=fct_lump_n(Language,2)); #,vs=ifelse(is.na(AgeAtDeath),'Living','Deceased')
+         #,Strata=as.character(Strata) %>% gsub('^[+]+|[+]+$','',.) %>% gsub('[+]{2}','+',.));
+select(demog0,-c('patient_num','CohortDetail')) %>% table1(~.|CohortFactor,data=.);
 
 #' ## Visualizations
 #'
@@ -115,7 +121,7 @@ xsdat0 <- subset(dat0,age_at_visit_days>=365.25*50 &
                    age_at_visit_days <= coalesce(age_at_death_days,Inf) &
                    medhba1c < 17) %>% group_by(patient_num) %>%
   slice_sample(n=1) %>% mutate(Age=age_at_visit_days/365.25) %>%
-  left_join(demog0[,c('patient_num','Strata')]);
+  left_join(demog0[,c('patient_num','CohortFactor')]);
 
 # efi_age_plot ----
 ggplot(xsdat0,aes(x=Age,y=FRAIL6MO)) + geom_smooth() +
@@ -124,7 +130,7 @@ ggplot(xsdat0,aes(x=Age,y=FRAIL6MO)) + geom_smooth() +
 
 #' 6-Month EFI vs age, stratified by type of monotherapy.
 #+ drug_efi_age_plot
-subset(xsdat0,!grepl('[+]',Strata)) %>% ggplot(aes(x=Age,y=FRAIL6MO,col=Strata)) + geom_smooth(alpha=0.1) +
+subset(xsdat0,!grepl('[+]',CohortFactor)) %>% ggplot(aes(x=Age,y=FRAIL6MO,col=CohortFactor)) + geom_smooth(alpha=0.1) +
   ylab('EFI')
 
 
@@ -136,7 +142,8 @@ ggplot(xsdat0,aes(x=Age,y=medhba1c)) + geom_smooth() + ylab('HbA1c')
 #' Change in HbA1c with age stratified by monotherapy
 #+ drug_hba1c_age_plot
 # hba1c_age_plot ----
-subset(xsdat0,!grepl('[+]',Strata)) %>% ggplot(aes(x=Age,y=medhba1c,col=Strata)) + geom_smooth(alpha=0.1) + ylab('HbA1c')
+subset(xsdat0,!grepl('[+]',CohortFactor)) %>% ggplot(aes(x=Age,y=medhba1c,col=CohortFactor)) +
+  geom_smooth(alpha=0.1) + ylab('HbA1c')
 
 
 #' EFI vs HbA1c. Surprising that there is an inverse relationship, but again,
