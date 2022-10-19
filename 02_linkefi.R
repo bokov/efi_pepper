@@ -8,7 +8,12 @@ source('default_config.R');
 #' The local path names for the data files should be stored in a vector
 #' named `inputdata` that get set in a script named `local_config.R`
 if(file.exists('local_config.R')) source('local_config.R');
-savename <- gsub('[A-Za-z]+_[A-Za-z]+','DEID_EFI',basename(inputdata['samplecsv'])) %>% gsub('.csv.zip','.tsv',.);
+savename <- gsub('[A-Za-z]+_[A-Za-z]+','DEID_EFI',basename(inputdata['samplecsv'])); #%>% gsub('.csv.zip','.tsv',.);
+#' for automated rebuilding of some or all data files, create a file named
+#' .usecachedfiles in the project folder
+if(file.exists('.usecachedfiles')){
+  inputdata <- sapply(inputdata,function(xx) if(file.exists(basename(xx))) basename(xx) else xx);
+}
 
 #' Import the main data and the EFI mappings
 dat0 <- import(inputdata['samplecsv'],colClasses=cClasses);
@@ -20,21 +25,23 @@ json_cols <- names(dat0) %>% grep('_cd$|_mn$|_tf$',.,inv=T,val=T) %>% grep('^v[0
 efi <- import(inputdata['efixwalk'],colClasses=cClasses);
 #' Import various de-identified data elements to link
 hba1c <- import(inputdata['hba1c'],colClasses=cClasses);
-gludrugs <- import(inputdata['gludrugs'],colClasses=cClasses);
+gludrugs <- import(inputdata['gludrugs'],colClasses=cClasses) %>%
+  select(patient_num,start_month,MonthFactor,CohortFactor,CohortDetail);
 
 #' Filter out the patients who don't have valid EFIs within the range of the data
-dat1 <- subset(dat0,patient_num %in% efi$patient_num);
+#' TODO: merge records for the two Epic IDs that each have two patient_num
+dat1 <- subset(dat0,patient_num %in% efi$patient_num) %>%
+  mutate(start_month=first_of_month(start_date));
 #' But for the rest, keep all available dates because some of them contain special data elements
 dat2 <- left_join(dat1,efi) %>%
   left_join(gludrugs) %>%
   left_join(hba1c[,c('patient_num','start_date','medhba1c','vfhba1c')]) %>%
   fill(medhba1c,vfhba1c,FRAIL6MO,FRAIL12MO,FRAIL24MO) %>%
-  select(!any_of(c('PATIENT_IDE','patient_ide','DATE_SHIFT','date_shift','monthkey')));
+  select(!any_of(idfields));
 dat3 <- select(dat2,!any_of(json_cols));
 
 message('Saving full data as ',savename);
 export(dat2,file=savename);
 message('Saving analytic-only data as ',nojsonsavename <- gsub('^DEID_EFI_','DEID_EFI_NOJSON_',savename));
 export(dat3,file=nojsonsavename);
-message('Saving patient drug lookup file as PHI_GLUDRUGS_DATES.xlsx')
 
