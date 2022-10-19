@@ -15,7 +15,7 @@ if(file.exists('local_config.R')) source('local_config.R');
 # if they are not.
 .current_digests <- sapply(inputdata[1:3],digest::digest,file=T);
 
-if(!identical(.current_digests
+if(!file.exists('.ignorehashes') && !identical(.current_digests
               ,c(fullsqlfile="6a16692a07c116e1559b09cbe0b92268"
                  ,patmap="be08a4ca7f74fcaefd9fb8e30500dd8f" # "96d0fa0e6c247eb6349ef83d28d84064"
                  ,efi="5d52569b3037d72c6e481038d931f7d9"))){
@@ -28,7 +28,7 @@ if(!identical(.current_digests
 #' ## Create the Patient-Date crosswalk.
 fullsql <- file.path(tempdir,'fullsql.db');
 if(!file.exists(fullsql) || digest::digest(fullsql,file=T) != "6a16692a07c116e1559b09cbe0b92268"){
-  file.copy(inputdata['fullsqlfile'],fullsql<-file.path(tempdir,'fullsql.db'))};
+  file.copy(inputdata['fullsqlfile'],fullsql)};
 fullsqlcon <- dbConnect(RSQLite::SQLite(), fullsql);
 deid_patdate <- dbGetQuery(fullsqlcon
                            ,'SELECT DISTINCT patient_num,start_date FROM observation_fact') %>%
