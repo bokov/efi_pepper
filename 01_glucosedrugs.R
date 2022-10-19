@@ -18,7 +18,7 @@ if(file.exists('local_config.R')) source('local_config.R');
 # Verify that the three original raw files are still the same and try to exit
 # if they are not.
 
-if(digest::digest(inputdata['fullsqlfile'],file=T)!="6a16692a07c116e1559b09cbe0b92268"){
+if(!file.exists('.ignorehashes') && digest::digest(inputdata['fullsqlfile'],file=T)!="6a16692a07c116e1559b09cbe0b92268"){
   rstudioapi::restartSession(command="warning('The original raw data files seem to be corrupted! You should not proceed further. Ask Alex to restore them from backup!')");
   stop('The original raw data files seem to be corrupted! You should not proceed further. Ask Alex to restore them from backup!');
   NOFUNCTION();
@@ -164,36 +164,44 @@ dat1 <- mutate(dat0
   ungroup(start_date) %>%
   mutate(CohortDetail=if(all(MonthFactor=='None')) 'None' else {
     paste0(sort(setdiff(MonthFactor,'None')),collapse=';')}
-    ,CohortFactor=if(any(grepl(';',CohortDetail))) 'Multi' else CohortDetail) %>%
+    ,CohortFactor=if(any(grepl(';',CohortDetail))) 'Multi' else CohortDetail
+    # identify months of 'None' sandwiched between months of identical treatments
+    # and make them part of the same interval
+    ,sandwiched = coalesce(MonthFactor=='None' & MonthFactor != lag(MonthFactor) & lag(MonthFactor)==lead(MonthFactor),F)
+    ,MonthFactor = ifelse(sandwiched,lag(MonthFactor),MonthFactor)
+  ) %>%
   arrange(PAT_MRN_ID,start_date);
 
 uniform_periods <- with(dat1,rle(paste0(PAT_MRN_ID,':',MonthFactor)));
 uniform_periods$values <- seq_along(uniform_periods$values);
 dat1$rownumber <- inverse.rle(uniform_periods);
 
+dat1lds <- select(dat1,!any_of(c(idfields,'start_date'))) %>%
+  rename(start_month=shifted_date);
+
 dat2<-group_by(dat1,rownumber,PAT_MRN_ID,MonthFactor) %>%
-  summarise(from_date=min(start_date),to_date=max(start_date)
+  summarise(randomgroup =substring(patient_num,nchar(patient_num)-2)
+            ,from_date=min(start_date),to_date=max(start_date)
             ,min_since_pc=min(months_since_pcvisit)
             ,max_since_pc=max(months_since_pcvisit)
             ,Metformin=any(Metformin!=''),Secretagogues=any(Secretagogues!='')
-            ,SGLT2I=any(SGLT2I!=''),DDP4I=any(DDP4I!=''),GPL1A=any(GLP1A!='')
+            ,SGLT2I=any(SGLT2I!=''),DDP4I=any(DDP4I!=''),GLP1A=any(GLP1A!='')
             ,TZD=any(TZD!=''),None=all(None!='')
-            ,name_chars=paste0(unique(name_chars),collapse=';')
-            ,concept_cds=paste0(unique(concept_cds),collapse=';')
+            ,N_UHS_Records=max(N_UHS_Records)
+            ,N_UTMed_Records=max(N_UTMed_Records)
+            ,name_chars=paste0(unique(coalesce(name_chars,'')),collapse=';')
+            ,concept_cds=paste0(unique(coalesce(concept_cds,'')),collapse=';')
             ,CohortFactor=max(CohortFactor)
             ,CohortDetail=max(CohortDetail)
             ,patient_num=paste0(unique(patient_num),collapse=';')
             ,PATIENT_IDE_UPDATED=max(PATIENT_IDE_UPDATED)
             ,DATE_SHIFT=paste0(unique(DATE_SHIFT),collapse=';')
-            );
+            ) %>% unique;
 
-# TODO: make the long-form version of dat2 (i.e. no aggregation, just
+# DONE: (not needed after all) make the long-form version of dat2 (i.e. no aggregation, just
 #       rearranging the columns in the above order)
-# TODO: make the deid version of dat1, for direct incorporation into the
+# DONE: make the deid version of dat1, for direct incorporation into the
 #       analysis
-# TODO: export the long and short-form versions of dat2, export the deid version
-# #nrow(subset(dat1,CohortFactor=='Metformin' & paste0()))
-#
 # # check for uniqueness of patient_num,CohortDetail,CohortFactor
 # # make sure None, Metformin, Secretagogue
 #   summarise(
@@ -266,5 +274,6 @@ dat2<-group_by(dat1,rownumber,PAT_MRN_ID,MonthFactor) %>%
 #   relocate(PAT_MRN_ID,Drug,FromDate,ToDate,Cohort);
 
 
-export(dat1,file='DEID_GLUDRUGS.tsv');
-export(dat2,file='PHI_GLUDRUG_DATES.xlsx');
+export(dat1,file='PHI_GLUDRUGS.tsv.zip');
+export(dat1lds,file='DEID_GLUDRUGS.tsv.zip');
+export(dat2,file='PHI_GLUDRUG_DATES.xlsx',overwrite=T,keepNA=F,firstRow=T);
