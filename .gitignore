@@ -26,3 +26,5 @@ dfshiny
 efi00
 local
 .out
+.ignorehashes
+.usecachedfiles
