@@ -36,7 +36,8 @@ fullsqlcon <- dbConnect(RSQLite::SQLite(), fullsql);
     GLP1A = c("Albiglutide","Dulaglutide","Liraglutide","Semaglutide","Exenatide","Lixisenatide"),
     TZD = c("Rosiglitazone", "Pioglitazone"),
     Sulfonylureas = c("Glipizide","Glimepiride", "Glyburide"),
-    Metformin='Metformin'
+    Metformin='Metformin',
+    Insulin='Insulin'
   );
 
 .drugmatches <- lapply(.drugnames,function(xx){
@@ -155,10 +156,11 @@ dat0 <- dbGetQuery(fullsqlcon,.drugsql) %>%
 dat1 <- mutate(dat0
                ,Secretagogues=ifelse(Sulfonylureas!='' | Glinides!='','Secretagogues','')
                ,AnyOther=ifelse(SGLT2I!=''|DDP4I!=''|GLP1A!=''|TZD!='','AnyOther','')
-               ,SecretagoguesMono=ifelse(Secretagogues!=''&AnyOther==''&Metformin=='','SecretagoguesMono','')
-               ,MetforminMono=ifelse(Metformin!=''&AnyOther==''&Secretagogues=='','MetforminMono','')
+               ,SecretagoguesMono=ifelse(Secretagogues!=''&AnyOther==''&Metformin==''&Insulin=='','SecretagoguesMono','')
+               ,MetforminMono=ifelse(Metformin!=''&AnyOther==''&Secretagogues==''&Insulin=='','MetforminMono','')
+               ,InsulinMono=ifelse(Metformin==''&AnyOther==''&Secretagogues==''&Insulin!='','InsulinMono','')
                #,CohortFactor=paste0(None,AnyOther,SecretagoguesMono,MetforminMono) #%>% gsub('[+]+','+',.)
-               ,MonthFactor = paste(Secretagogues,Metformin,AnyOther,None,sep='+') %>%
+               ,MonthFactor = paste(Secretagogues,Metformin,Insulin,AnyOther,None,sep='+') %>%
                  gsub('[+]+','+',.) %>% gsub('^[+]|[+]$','',.)
 ) %>%
   ungroup(start_date) %>%
@@ -184,7 +186,9 @@ dat2<-group_by(dat1,rownumber,PAT_MRN_ID,MonthFactor) %>%
             ,from_date=min(start_date),to_date=max(start_date)
             ,min_since_pc=min(months_since_pcvisit)
             ,max_since_pc=max(months_since_pcvisit)
-            ,Metformin=any(Metformin!=''),Secretagogues=any(Secretagogues!='')
+            ,Metformin=any(Metformin!='')
+            ,Insulin=any(Insulin!='')
+            ,Secretagogues=any(Secretagogues!='')
             ,SGLT2I=any(SGLT2I!=''),DDP4I=any(DDP4I!=''),GLP1A=any(GLP1A!='')
             ,TZD=any(TZD!=''),None=all(None!='')
             ,N_UHS_Records=max(N_UHS_Records)
