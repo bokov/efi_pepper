@@ -31,6 +31,18 @@ cDrugGroupsMain <- c('Metformin','Secretagogues');
 # backslashes as escape characters.
 shared_filepath <- r"{\\ifs.win.uthscsa.edu\G2300-Barshop\Projects\Clinical Research\1. Pepper Center Regulatory Files\Cortes\21-20210681EX Regulatory Binder\Differential_effect\Data\}";
 
+# A stable location for temporary files that persists between sessions.
+# Feel free to hard-code whatever you want to use on your computer as the actual
+# temp directory. Not used currently except by 01_makemappings.R
+tempdir <- dirname(tempdir());
+
+# various file locations
+stagedir <- file.path(tempdir,'efi_stage');
+backupdir <- file.path(tempdir,paste0('efi_old_',as.numeric(Sys.time())));
+ldsdir <- '01 LDS Derived Data 220624';
+phidir <- '01 PHI Derived Data 220624';
+
+
 inputdata <- c(
 
   # STAGE 0
@@ -71,25 +83,25 @@ inputdata <- c(
   # variable) as we think of more new items to include.
   # Each time we do, we won't have to go all the way back to the PHI in Stage 0
   # we can re-link it to EFI using only de-identified data and 02_linkefi.R
-  efixwalk=paste0(shared_filepath,"01 LDS Derived Data 220624\\DEID_Xwalk_PatDateEFI.tsv"),
+  efixwalk=paste0(shared_filepath,ldsdir,"\\DEID_Xwalk_PatDateEFI.tsv"),
 
   # This is a de-identified table of all HbA1c values uniquely indexed by
   # patient_num and start_date. It is all patients, not just the 40% sample, so
   # in principle we might never need to rebuild it-- just keep re-linking it to
   # the latest version of `samplecsv`.
-  hba1c=paste0(shared_filepath,"01 LDS Derived Data 220624\\DEID_HBA1c.tsv"),
+  hba1c=paste0(shared_filepath,ldsdir,"\\DEID_HBA1c.tsv"),
 
   # This is a de-identified table of drug information uniquely indexed by
   # patient_num start_date. It is all patients, not just the 40% sample, so in
   # principle we might never need to rebuild it-- just keep re-linking it to the
   # latest version of `samplecsv`.
-  gludrugs=paste0(shared_filepath,"01 LDS Derived Data 220624\\DEID_GLUDRUGS.tsv.zip"),
+  gludrugs=paste0(shared_filepath,ldsdir,"\\DEID_GLUDRUGS.tsv.zip"),
 
   # ANALYSIS READY
 
   # The below are the files to analyze directly, the others are earlier steps
   # in the process of creating them
-  analyzeme=paste0(shared_filepath,"01 LDS Derived Data 220624\\DEID_EFI_NOJSON_HSC20210681E_20220204_9aaf19f0.csv.zip"),
+  analyzeme=paste0(shared_filepath,ldsdir,"\\DEID_EFI_NOJSON_HSC20210681E_20220204_9aaf19f0.csv.zip"),
   metadata=paste0(shared_filepath,"00 LDS DataFinisher Data\\DF_sample_HSC20210681E_20220204_9aaf19f0_dict.csv"),
 
   # The below is a full version of `analyzeme`. Keep it commented out unless
@@ -101,13 +113,10 @@ inputdata <- c(
 
 
   # files for future use
-  consort=paste0(shared_filepath,"01 LDS Derived Data 220624\\consort_counts.rdata")
+  consort=paste0(shared_filepath,ldsdir,"\\consort_counts.rdata")
 );
 
-# A stable location for temporary files that persists between sessions.
-# Feel free to hard-code whatever you want to use on your computer as the actual
-# temp directory. Not used currently except by 01_makemappings.R
-tempdir <- dirname(tempdir());
+
 # column names that should be assumed to contain identified data
 idfields <- c('PAT_MRN_ID','DATE_SHIFT','PATIENT_IDE_UPDATED','PATIENT_IDE'
               ,'MONTHKEY') %>% c(.,tolower(.));
