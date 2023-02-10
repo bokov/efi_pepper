@@ -77,3 +77,9 @@ file.copy(stage_files[,1],stage_targets,overwrite = T,copy.date = T);
               ,message);
 file.copy(stage_files[,1],stage_files[,2],overwrite = T,copy.date = T);
 
+.thisgithash <- system('git rev-parse --verify HEAD',intern=T);
+if(system('git',intern=F)==1 &&
+   system('if [ -z "$(git status --porcelain=v1 2>/dev/null)" ] ; then echo "No changes"; else echo "Changes"; fi',intern=T) == 'No changes' &&
+   system('git ls-remote --head --exit-code origin main | cut -f 1 ',intern=T)== .thisgithash){
+  write(.thisgithash,file=file.path(stagedir,paste0('git_hash_',as.numeric(Sys.time()),'.txt')));
+}
