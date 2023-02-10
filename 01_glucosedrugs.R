@@ -3,10 +3,20 @@ library(dplyr);
 library(DBI);
 library(rio);     # format-agnostic convenient file import
 library(dint);    # date-conversion
+library(zoo);     # more date conversion?!
 library(digest);
 library(forcats);
+library(stringr);
 
 options(datatable.integer64='numeric');
+
+runReplace <- function(xx,fillwith,fillinto,length=6){
+  if(length(setdiff(xx,c(fillinto,fillwith)))>0){browser()
+    stop('The xx argument must have two unique values, that correspond to the fillwith and fillinto arguments')};
+    xxrle <- rle(xx);
+    xxrle$values[with(xxrle,values==fillinto & lengths<=length)] <- fillwith;
+    inverse.rle(xxrle);
+}
 
 # runtime duration: 11:22
 
@@ -32,10 +42,10 @@ fullsqlcon <- dbConnect(RSQLite::SQLite(), fullsql);
 .drugnames <- list(
     Glinides = c("Repaglinide", "Nateglinide"),
     SGLT2I = c("Empagliflozin","Canagliflozin","Dapagliflozin","Ertugliflozin"),
-    DDP4I = c("Sitagliptin","Alogliptin", "Saxagliptin", "Linagliptin"),
+    DDP4I = c("Sitagliptin","Alogliptin", "Saxagliptin", "Linagliptin", "Vildagliptin"),
     GLP1A = c("Albiglutide","Dulaglutide","Liraglutide","Semaglutide","Exenatide","Lixisenatide"),
-    TZD = c("Rosiglitazone", "Pioglitazone"),
-    Sulfonylureas = c("Glipizide","Glimepiride", "Glyburide"),
+    TZD = c("Rosiglitazone", "Pioglitazone", "Troglitazone"),
+    Sulfonylureas = c("Glipizide","Glimepiride", "Glyburide", "Tolazamide","Tolbutamide","Chlorpropamide","Glibornuride","Gliclazide","Gliquidone"),
     Metformin='Metformin',
     Insulin='Insulin'
   );
@@ -148,31 +158,57 @@ dbWriteTable(fullsqlcon,'xwalk',id_patmap
 dat0 <- dbGetQuery(fullsqlcon,.drugsql) %>%
   mutate(across(any_of(c('patient_num','PAT_MRN_ID')),as.character)
          ,across(ends_with('_date'),as.Date)) %>%
-  group_by(patient_num,start_date) %>% arrange(PAT_MRN_ID,start_date);
+  group_by(patient_num) %>% arrange(PAT_MRN_ID,start_date);
 #dbExecute(fullsqlcon,'DROP TABLE xwalk');
 #dbDisconnect(fullsqlcon);
 
 # patient history, can be joined to main data
-dat1 <- mutate(dat0
-               ,Secretagogues=ifelse(Sulfonylureas!='' | Glinides!='','Secretagogues','')
-               ,AnyOther=ifelse(SGLT2I!=''|DDP4I!=''|GLP1A!=''|TZD!='','AnyOther','')
-               ,SecretagoguesMono=ifelse(Secretagogues!=''&AnyOther==''&Metformin==''&Insulin=='','SecretagoguesMono','')
-               ,MetforminMono=ifelse(Metformin!=''&AnyOther==''&Secretagogues==''&Insulin=='','MetforminMono','')
-               ,InsulinMono=ifelse(Metformin==''&AnyOther==''&Secretagogues==''&Insulin!='','InsulinMono','')
-               #,CohortFactor=paste0(None,AnyOther,SecretagoguesMono,MetforminMono) #%>% gsub('[+]+','+',.)
-               ,MonthFactor = paste(Secretagogues,Metformin,Insulin,AnyOther,None,sep='+') %>%
-                 gsub('[+]+','+',.) %>% gsub('^[+]|[+]$','',.)
-) %>%
-  ungroup(start_date) %>%
-  mutate(CohortDetail=if(all(MonthFactor=='None')) 'None' else {
-    paste0(sort(setdiff(MonthFactor,'None')),collapse=';')}
-    ,CohortFactor=if(any(grepl(';',CohortDetail))) 'Multi' else CohortDetail
-    # identify months of 'None' sandwiched between months of identical treatments
-    # and make them part of the same interval
-    ,sandwiched = coalesce(MonthFactor=='None' & MonthFactor != lag(MonthFactor) & lag(MonthFactor)==lead(MonthFactor),F)
-    ,MonthFactor = ifelse(sandwiched,lag(MonthFactor),MonthFactor)
-  ) %>%
-  arrange(PAT_MRN_ID,start_date);
+dat1 <- mutate(
+  dat0
+  ,across(any_of(c('Glinides', 'SGLT2I', 'DDP4I', 'GLP1A', 'TZD', 'Sulfonylureas', 'Metformin', 'Insulin')),~runReplace(.x,cur_column(),''))
+  ,Secretagogues=ifelse(Sulfonylureas!='' | Glinides!='','Secretagogues','')
+  ,AnyOther=ifelse(SGLT2I!=''|DDP4I!=''|GLP1A!=''|TZD!='','AnyOther','')
+  ,SecretagoguesMono=ifelse(Secretagogues!=''&AnyOther==''&Metformin==''&Insulin=='','SecretagoguesMono','')
+  ,MetforminMono=ifelse(Metformin!=''&AnyOther==''&Secretagogues==''&Insulin=='','MetforminMono','')
+  ,InsulinMono=ifelse(Metformin==''&AnyOther==''&Secretagogues==''&Insulin!='','InsulinMono','')
+  ,None = ifelse(Secretagogues == '' & AnyOther == '' & Metformin == '' & Insulin == '','None','')
+  ,CohortDetail=paste(Glinides,SGLT2I,DDP4I,GLP1A,TZD,Sulfonylureas,Metformin,Insulin,None,sep='+') %>%
+    gsub('[+]+','+',.) %>% gsub('^[+]|[+]$','',.)
+  #,CohortFactor=paste(Secretagogues,Metformin,Insulin,AnyOther,None,sep='+')
+  #,CohortFactor=paste0(None,AnyOther,SecretagoguesMono,MetforminMono) #%>% gsub('[+]+','+',.)
+  ,MonthFactor = paste(Secretagogues,Metformin,Insulin,AnyOther,None,sep='+') %>%
+    gsub('[+]+','+',.) %>% gsub('^[+]|[+]$','',.)
+  # ,CohortDetail=if(all(MonthFactor=='None')) 'None' else {
+  #   paste0(sort(setdiff(MonthFactor,'None')),collapse=';')}
+  # ,CohortFactor=if(any(grepl(';',CohortDetail))) 'Multi' else CohortDetail
+  ) %>% arrange(PAT_MRN_ID,start_date) %>% ungroup %>% group_by(patient_num) %>%
+  mutate(CohortDetail=lapply(CohortDetail,str_split_1,'\\+') %>% unlist %>%
+           setdiff('None') %>% sort %>% paste0(collapse='+') %>%
+           ifelse(.=='','None',.)
+         ,CohortFactor = lapply(MonthFactor,str_split_1,'\\+') %>% unlist %>%
+           setdiff('None') %>% sort %>% paste0(collapse='+') %>%
+           ifelse(.=='','None',.)
+         ) %>% ungroup;
+  # ungroup(start_date) %>%
+  # mutate(CohortDetail=if(all(MonthFactor=='None')) 'None' else {
+  #   paste0(sort(setdiff(MonthFactor,'None')),collapse=';')}
+  #   ,CohortFactor=if(any(grepl(';',CohortDetail))) 'Multi' else CohortDetail
+  #   # identify months of 'None' sandwiched between months of identical treatments
+  #   # and make them part of the same interval
+  #   ,MFLag = lag(MonthFactor,default='None'), MFLead = lead(MonthFactor,default='None')
+  #   # Months where the preceding and next month are the same as each other and
+  #   # involve multiple drugs, and this current (intervening) month has a
+  #   # strict subset of those drugs
+  #   ,MF_MFLead= MFLag == MFLead & grepl('\\+',MFLead) & mapply(function(aa,bb){
+  #     all(str_split_1(aa,'\\+') %in% str_split_1(bb,'\\+'))
+  #     },MonthFactor,MFLead)
+  #   # ...or, the intervening month is 'None' which is a subset of any treatment
+  #   ,sandwiched = (MonthFactor=='None' & MonthFactor != MFLead) | MF_MFLead
+  #   # If either of these conditions for sandwichedness are met, copy over the
+  #   # preceding month's status
+  #   ,MonthFactor = ifelse(sandwiched,MFLag,MonthFactor)
+  # ) %>%
+  # arrange(PAT_MRN_ID,start_date);
 
 uniform_periods <- with(dat1,rle(paste0(PAT_MRN_ID,':',MonthFactor)));
 uniform_periods$values <- seq_along(uniform_periods$values);
@@ -182,8 +218,9 @@ dat1lds <- select(dat1,!any_of(c(idfields,'start_date'))) %>%
   rename(start_month=shifted_date);
 
 dat2<-group_by(dat1,rownumber,PAT_MRN_ID,MonthFactor) %>%
-  summarise(randomgroup =substring(patient_num,nchar(patient_num)-2)
+  summarise( randomgroup =substring(patient_num,nchar(patient_num)-2)
             ,from_date=min(start_date),to_date=max(start_date)
+            ,duration= (as.yearmon(to_date)-as.yearmon(from_date))*12
             ,min_since_pc=min(months_since_pcvisit)
             ,max_since_pc=max(months_since_pcvisit)
             ,Metformin=any(Metformin!='')
@@ -200,7 +237,20 @@ dat2<-group_by(dat1,rownumber,PAT_MRN_ID,MonthFactor) %>%
             ,patient_num=paste0(unique(patient_num),collapse=';')
             ,PATIENT_IDE_UPDATED=max(PATIENT_IDE_UPDATED)
             ,DATE_SHIFT=paste0(unique(DATE_SHIFT),collapse=';')
-            ) %>% unique;
+            ) %>% unique %>% ungroup #%>%
+  # mutate(
+  #   duration= difftime(to_date,from_date,units='weeks') %>% as.numeric
+  #   ,MFLag = lag(MonthFactor,default='None'), MFLead = lead(MonthFactor,default='None')
+  #   ,MF_MFLead= MFLag == MFLead & grepl('\\+',MFLead) & mapply(function(aa,bb){
+  #     all(str_split_1(aa,'\\+') %in% str_split_1(bb,'\\+'))
+  #   },MonthFactor,MFLead)
+  #   ,sandwiched = duration <= 24 & ((MonthFactor=='None' & MonthFactor != MFLead) | MF_MFLead )
+  #   ,MonthFactor2 = ifelse(sandwiched,MFLag,MonthFactor)
+  # );
+
+# uniform_periods2 <- with(dat2,rle(paste0(PAT_MRN_ID,':',MonthFactor2)));
+# uniform_periods2$values <- seq_along(uniform_periods2$values);
+# dat2$rownumber2 <- inverse.rle(uniform_periods2);
 
 # DONE: (not needed after all) make the long-form version of dat2 (i.e. no aggregation, just
 #       rearranging the columns in the above order)
@@ -276,6 +326,12 @@ dat2<-group_by(dat1,rownumber,PAT_MRN_ID,MonthFactor) %>%
 #   mutate(CohortFactor=gsub('Cohort_','',CohortFactor)) %>%
 #   rename(Cohort=CohortFactor) %>%
 #   relocate(PAT_MRN_ID,Drug,FromDate,ToDate,Cohort);
+
+# Possibly useful summary:
+# cf <- group_by(dat1,CohortFactor) %>% summarise(N=length(unique(patient_num)))
+# cd <- group_by(dat1,CohortDetail) %>% summarise(N=length(unique(patient_num)))
+# cfd <- full_join(cf,cd,by=c(CohortFactor="CohortDetail")) %>% mutate(NN=coalesce(N.y,N.x));
+# View(cfd);
 
 
 export(dat1,file='PHI_GLUDRUGS.tsv.zip');
