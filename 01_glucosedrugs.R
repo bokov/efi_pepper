@@ -40,11 +40,11 @@ if(!file.exists('.ignorehashes') && digest::digest(inputdata['fullsqlfile'],file
 };
 # Make sure the fullsql database exists and is true to the original, otherwise
 # get a fresh copy
+fullsql <- file.path(tempdir,'fullsql.db');
 if(!file.exists(fullsql) || digest::digest(fullsql,file=T) != "6a16692a07c116e1559b09cbe0b92268"){
   file.copy(inputdata['fullsqlfile'],fullsql<-file.path(tempdir,'fullsql.db'),overwrite = T)};
 
 # prepare db connections ----
-fullsql <- file.path(tempdir,'fullsql.db');
 # scriptmp is where we write temporary tables without cluttering up the fullsql
 # source data. Maybe now the hashes will stop drifting.
 scriptmp <- file.path(tempdir,'scriptmp.db');

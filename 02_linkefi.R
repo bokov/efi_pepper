@@ -26,15 +26,26 @@ efi <- import(inputdata['efixwalk'],colClasses=cClasses);
 #' Import various de-identified data elements to link
 hba1c <- import(inputdata['hba1c'],colClasses=cClasses);
 gludrugs <- import(inputdata['gludrugs'],colClasses=cClasses) %>%
-  select(patient_num,start_month,MonthFactor,CohortFactor,CohortDetail);
+  select(patient_num,start_month,MonthFactor,CohortFactor,CohortDetail,months_since_pcvisit) %>%
+  unique() %>%
+  group_by(patient_num,start_month,CohortFactor,CohortDetail) %>%
+  summarize(MonthFactor = MonthFactor[which.max(str_length(MonthFactor))],months_since_pcvisit = max(months_since_pcvisit,na.rm=T)) %>%
+  subset(is.finite(months_since_pcvisit));
 
 #' Filter out the patients who don't have valid EFIs within the range of the data
 #' TODO: merge records for the two Epic IDs that each have two patient_num
+#' DONE: how many patients lost due to dropping infinite months_since_pcvisit -- 88
+#' DONE: 1140622 total rows in gludrugs and 1140622 unique patient-date combos
+#' DONE: patients in gludrugs vs in dat1 -- 8966 vs 2523 and all dat1 patients are in gludrugs
+#' TODO: Document the deduplication effort and counts of CohortFactors with and
+#'       without exclusion due to too few PC visits
+#' DONE: Does it get better if we only apply the PC visit exclusion for
+#'       encounters in 2016-2019? Yes. Do that.
 dat1 <- subset(dat0,patient_num %in% efi$patient_num) %>%
   mutate(start_month=first_of_month(start_date));
 #' But for the rest, keep all available dates because some of them contain special data elements
 dat2 <- left_join(dat1,efi) %>%
-  left_join(gludrugs) %>%
+  left_join(unique(gludrugs)) %>%
   left_join(hba1c[,c('patient_num','start_date','medhba1c','vfhba1c')]) %>%
   fill(medhba1c,vfhba1c,FRAIL6MO,FRAIL12MO,FRAIL24MO) %>%
   select(!any_of(idfields));
