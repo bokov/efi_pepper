@@ -56,3 +56,7 @@ export(dat2,file=savename);
 message('Saving analytic-only data as ',nojsonsavename <- gsub('^DEID_EFI_','DEID_EFI_NOJSON_',savename));
 export(dat3,file=nojsonsavename);
 
+# pat_2few_visitsv2 <- subset(dat2,months_since_pcvisit>12 & between(start_date,as.Date('2015-01-01'),as.Date('2020-01-01')))$patient_num %>% unique
+# lowvis_excluded_counts <- unique(subset(dat2,! patient_num %in% pat_2few_visitsv2)[,c('patient_num','CohortFactor')])$CohortFactor %>% table %>% sort %>% cbind()
+# all_counts <- unique(subset(dat2,TRUE)[,c('patient_num','CohortFactor')])$CohortFactor %>% table %>% sort %>% cbind()
+# cbind(lowvis_excluded_counts,all_counts)
