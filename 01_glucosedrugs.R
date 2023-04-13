@@ -137,11 +137,18 @@ uniform_periods <- with(dat1,rle(paste0(PAT_MRN_ID,':',MonthFactor)));
 uniform_periods$values <- seq_along(uniform_periods$values);
 dat1$rownumber <- inverse.rle(uniform_periods);
 
+visitgap_excluded <- subset(dat1,months_since_pcvisit>12 &
+                               between(start_date,as.Date('2015-01-01')
+                                       ,as.Date('2020-01-01')))$patient_num %>% unique;
+dat1$excluded <- ifelse(dat1$patient_num %in% visitgap_excluded,'VisitGap','');
+
 dat1lds <- select(dat1,!any_of(c(idfields,'start_date'))) %>%
   rename(start_month=shifted_date);
 
 dat2<-group_by(dat1,rownumber,PAT_MRN_ID,MonthFactor) %>%
   summarise( randomgroup =substring(patient_num,nchar(patient_num)-2)
+             # if any exclusions apply, concatenate them and consider this entry excluded
+             ,excluded <- paste0(setdiff(excluded,'NotExcluded'),collapse=';')
             ,from_date=min(start_date),to_date=max(start_date)
             ,duration= (as.yearmon(to_date)-as.yearmon(from_date))*12
             ,min_since_pc=min(months_since_pcvisit)
@@ -256,7 +263,14 @@ dat2<-group_by(dat1,rownumber,PAT_MRN_ID,MonthFactor) %>%
 # cfd <- full_join(cf,cd,by=c(CohortFactor="CohortDetail")) %>% mutate(NN=coalesce(N.y,N.x));
 # View(cfd);
 
+counts_all <- unique(gludrugs[,c('patient_num','CohortFactor')])$CohortFactor %>%
+  table %>% sort %>% as.data.frame() %>% setNames(c('Group','All'));
+counts_post_exclusion <- unique(subset(gludrugs,excluded=='')[,c('patient_num','CohortFactor')])$CohortFactor %>%
+  table %>% sort %>% as.data.frame() %>% setNames(c('Group','After Exclusion'));
+inner_join(counts_all,counts_post_exclusion,by=c(Group='Group'));
 
 export(dat1,file='PHI_GLUDRUGS.tsv.zip');
 export(dat1lds,file='DEID_GLUDRUGS.tsv.zip');
-export(dat2,file='PHI_GLUDRUG_DATES.xlsx',overwrite=T,keepNA=F,firstRow=T);
+export(subset(dat2,excluded==''),file='PHI_GLUDRUG_DATES.xlsx',overwrite=T,keepNA=F,firstRow=T);
+
+c()

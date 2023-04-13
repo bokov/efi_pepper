@@ -3,6 +3,7 @@ library(tidyr);
 #library(DBI);
 library(rio);     # format-agnostic convenient file import
 library(dint);    # date-conversion
+library(stringr);
 
 source('default_config.R');
 #' The local path names for the data files should be stored in a vector
@@ -25,11 +26,13 @@ json_cols <- names(dat0) %>% grep('_cd$|_mn$|_tf$',.,inv=T,val=T) %>% grep('^v[0
 efi <- import(inputdata['efixwalk'],colClasses=cClasses);
 #' Import various de-identified data elements to link
 hba1c <- import(inputdata['hba1c'],colClasses=cClasses);
+
 gludrugs <- import(inputdata['gludrugs'],colClasses=cClasses) %>%
   select(patient_num,start_month,MonthFactor,CohortFactor,CohortDetail,months_since_pcvisit) %>%
   unique() %>%
   group_by(patient_num,start_month,CohortFactor,CohortDetail) %>%
-  summarize(MonthFactor = MonthFactor[which.max(str_length(MonthFactor))],months_since_pcvisit = max(months_since_pcvisit,na.rm=T)) %>%
+  summarize(MonthFactor = MonthFactor[which.max(str_length(MonthFactor))]
+            ,months_since_pcvisit = max(months_since_pcvisit,na.rm=T)) %>%
   subset(is.finite(months_since_pcvisit));
 
 #' Filter out the patients who don't have valid EFIs within the range of the data
