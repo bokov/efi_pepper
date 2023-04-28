@@ -26,6 +26,12 @@ source('default_config.R');
 #' The local path names for the data files should be stored in a vector
 #' named `inputdata` that get set in a script named `local_config.R`
 if(file.exists('local_config.R')) source('local_config.R');
+# If developing the datasources themselves, give preference to locally generated
+# versions
+if(.devmode){
+  inputdata <- ifelse(file.exists(basename(inputdata))
+                      ,basename(inputdata),inputdata) %>%
+    setNames(names(inputdata))};
 
 # load sql queries ----
 source('99_sqlqueries.R');
@@ -148,7 +154,7 @@ dat1lds <- select(dat1,!any_of(c(idfields,'start_date'))) %>%
 dat2<-group_by(dat1,rownumber,PAT_MRN_ID,MonthFactor) %>%
   summarise( randomgroup =substring(patient_num,nchar(patient_num)-2)
              # if any exclusions apply, concatenate them and consider this entry excluded
-             ,excluded <- paste0(setdiff(excluded,'NotExcluded'),collapse=';')
+             ,excluded = paste0(setdiff(excluded,'NotExcluded'),collapse=';')
             ,from_date=min(start_date),to_date=max(start_date)
             ,duration= (as.yearmon(to_date)-as.yearmon(from_date))*12
             ,min_since_pc=min(months_since_pcvisit)
@@ -263,9 +269,9 @@ dat2<-group_by(dat1,rownumber,PAT_MRN_ID,MonthFactor) %>%
 # cfd <- full_join(cf,cd,by=c(CohortFactor="CohortDetail")) %>% mutate(NN=coalesce(N.y,N.x));
 # View(cfd);
 
-counts_all <- unique(gludrugs[,c('patient_num','CohortFactor')])$CohortFactor %>%
+counts_all <- unique(dat1[,c('patient_num','CohortFactor')])$CohortFactor %>%
   table %>% sort %>% as.data.frame() %>% setNames(c('Group','All'));
-counts_post_exclusion <- unique(subset(gludrugs,excluded=='')[,c('patient_num','CohortFactor')])$CohortFactor %>%
+counts_post_exclusion <- unique(subset(dat1,excluded=='')[,c('patient_num','CohortFactor')])$CohortFactor %>%
   table %>% sort %>% as.data.frame() %>% setNames(c('Group','After Exclusion'));
 inner_join(counts_all,counts_post_exclusion,by=c(Group='Group'));
 

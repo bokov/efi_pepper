@@ -11,6 +11,14 @@ source('default_config.R');
 #' named `inputdata` that gets set in a script named `local_config.R`
 if(file.exists('local_config.R')) source('local_config.R');
 
+# If developing the datasources themselves, give preference to locally generated
+# versions
+if(.devmode){
+  inputdata <- ifelse(file.exists(basename(inputdata))
+                      ,basename(inputdata),inputdata) %>%
+    setNames(names(inputdata))};
+
+
 # Verify that the three original raw files are still the same and try to exit
 # if they are not.
 .current_digests <- sapply(inputdata[1:3],digest::digest,file=T);

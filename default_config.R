@@ -23,6 +23,12 @@ cDrugGroupsMain <- c('Metformin','Secretagogues');
 # Local Settings #
 ##################
 
+# If you set the below variable to TRUE, then certain scripts will use versions
+# of data files you generated instead of the canonical versions on the server.
+# This should be set to TRUE only if your are making changes to an upstream
+# datasource that will propogate to downstream datasources.
+.devmode <- FALSE;
+
 # The below variable is so you can specify file names without having to type out
 # a long folder path before each one. You don't have to use it, and you can
 # specify additional folders in that path, not only file (see example below for)

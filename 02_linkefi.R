@@ -9,6 +9,15 @@ source('default_config.R');
 #' The local path names for the data files should be stored in a vector
 #' named `inputdata` that get set in a script named `local_config.R`
 if(file.exists('local_config.R')) source('local_config.R');
+
+# If developing the datasources themselves, give preference to locally generated
+# versions
+if(.devmode){
+  inputdata <- ifelse(file.exists(basename(inputdata))
+                      ,basename(inputdata),inputdata) %>%
+    setNames(names(inputdata))};
+
+
 savename <- gsub('[A-Za-z]+_[A-Za-z]+','DEID_EFI',basename(inputdata['samplecsv'])); #%>% gsub('.csv.zip','.tsv',.);
 #' for automated rebuilding of some or all data files, create a file named
 #' .usecachedfiles in the project folder
@@ -59,7 +68,3 @@ export(dat2,file=savename);
 message('Saving analytic-only data as ',nojsonsavename <- gsub('^DEID_EFI_','DEID_EFI_NOJSON_',savename));
 export(dat3,file=nojsonsavename);
 
-# pat_2few_visitsv2 <- subset(dat2,months_since_pcvisit>12 & between(start_date,as.Date('2015-01-01'),as.Date('2020-01-01')))$patient_num %>% unique
-# lowvis_excluded_counts <- unique(subset(dat2,! patient_num %in% pat_2few_visitsv2)[,c('patient_num','CohortFactor')])$CohortFactor %>% table %>% sort %>% cbind()
-# all_counts <- unique(subset(dat2,TRUE)[,c('patient_num','CohortFactor')])$CohortFactor %>% table %>% sort %>% cbind()
-# cbind(lowvis_excluded_counts,all_counts)
