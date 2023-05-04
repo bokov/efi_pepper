@@ -91,6 +91,6 @@ if(system('git',intern=F)==1 &&
    system('if [ -z "$(git status --porcelain=v1 2>/dev/null)" ] ; then echo "No changes"; else echo "Changes"; fi',intern=T) == 'No changes' &&
    system('git ls-remote --head --exit-code origin main | cut -f 1 ',intern=T)== .thisgithash){
   .githashfile <- file.path(stagedir,paste0('git_hash_',as.numeric(Sys.time()),'.txt'));
-  message('Writing value',.thisgithash,'to',.githashfile);
+  message('Writing value ',.thisgithash,' to ',.githashfile);
   if(!.filecopy_dryrun) write(.thisgithash,file=.githashfile);
 }
