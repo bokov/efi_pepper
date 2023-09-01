@@ -278,5 +278,8 @@ inner_join(counts_all,counts_post_exclusion,by=c(Group='Group'));
 export(dat1,file='PHI_GLUDRUGS.tsv.zip');
 export(dat1lds,file='DEID_GLUDRUGS.tsv.zip');
 export(subset(dat2,excluded==''),file='PHI_GLUDRUG_DATES.xlsx',overwrite=T,keepNA=F,firstRow=T);
+export(subset(dat2,CohortFactor %in% c('Metformin','None','Metformin+Secretagogues')),file='PHI_GLUDRUG_DATES_MetforminSecretagogues.xlsx',overwrite=T,keepNA=F,firstRow=T);
+export(dat3<-subset(dat2,CohortFactor %in% c('Metformin','None','Metformin+Secretagogues')),file='PHI_GLUDRUG_DATES_MetforminSecretagogues.xlsx',overwrite=T,keepNA=F,firstRow=T);
+export(dat4<-unique(dat3[,c('PAT_MRN_ID','CohortFactor','CohortDetail','patient_num','PATIENT_IDE_UPDATED')]),file='PHI_GLUDRUG_MRNs_MetforminSecretagogues.xlsx',overwrite=T,keepNA=F,firstRow=T);
 
 c()

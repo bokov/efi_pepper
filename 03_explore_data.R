@@ -96,8 +96,8 @@ demog0 <- group_by(dat0,patient_num,sex_cd,language_cd,CohortFactor,CohortDetail
             ,AgeAtDeath=max(age_at_death_days)/365.25
             ,EncounterDays=length(start_date)
             ,EncounterMonths=length(unique(as.character(dint::as_date_ym(start_date))))
-            ,across(where(is.numeric) & !starts_with('age') & !starts_with('Encounter') & !starts_with('MONTH'),~na_if(min(.x,na.rm=T),Inf),.names='Min {.col}')
-            ,across(where(is.numeric) & !starts_with('age') & !starts_with('Encounter') & !starts_with('MONTH') & !starts_with('Min'),~na_if(max(.x,na.rm=T),-Inf),.names='Max {.col}')
+            ,across(where(is.numeric) & !starts_with('age') & !starts_with('Encounter') & !starts_with('MONTH'),~na_if(as.numeric(min(.x,na.rm=T)),Inf),.names='Min {.col}')
+            ,across(where(is.numeric) & !starts_with('age') & !starts_with('Encounter') & !starts_with('MONTH') & !starts_with('Min'),~na_if(as.numeric(max(.x,na.rm=T)),-Inf),.names='Max {.col}')
             # ,across(where(is.logical) & !any_of('None') & !contains('_Dgns_'),any),None=all(None)
             # ,Strata=interaction(ifelse(Metformin,'Metformin',''),ifelse(Secretagogues,'Secretagogues',''),ifelse(AnyOther,'Other',''),ifelse(None,'None',''),sep='+')
   ) %>% ungroup %>%
@@ -132,6 +132,8 @@ ggplot(xsdat0,aes(x=Age,y=FRAIL6MO)) + geom_smooth() +
 #+ drug_efi_age_plot
 subset(xsdat0,!grepl('[+]',CohortFactor)) %>% ggplot(aes(x=Age,y=FRAIL6MO,col=CohortFactor)) + geom_smooth(alpha=0.1) +
   ylab('EFI')
+subset(xsdat0,CohortFactor %in% c('Metformin','Metformin+Secretagogues','None')) %>% ggplot(aes(x=Age,y=FRAIL6MO,col=CohortFactor)) + geom_smooth(alpha=0.1) +   ylab('EFI')
+
 
 
 #' Change in HbA1c with age. Survivor effect?

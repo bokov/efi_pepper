@@ -42,7 +42,8 @@ gludrugs <- import(inputdata['gludrugs'],colClasses=cClasses) %>%
   group_by(patient_num,start_month,CohortFactor,CohortDetail) %>%
   summarize(MonthFactor = MonthFactor[which.max(str_length(MonthFactor))]
             ,months_since_pcvisit = max(months_since_pcvisit,na.rm=T)) %>%
-  subset(is.finite(months_since_pcvisit));
+  mutate(gludrugs_begin=min(start_month),gludrugs_end=max(start_month)) #%>%
+  #subset(is.finite(months_since_pcvisit));
 
 #' Filter out the patients who don't have valid EFIs within the range of the data
 #' TODO: merge records for the two Epic IDs that each have two patient_num
@@ -57,10 +58,12 @@ dat1 <- subset(dat0,patient_num %in% efi$patient_num) %>%
   mutate(start_month=first_of_month(start_date));
 #' But for the rest, keep all available dates because some of them contain special data elements
 dat2 <- left_join(dat1,efi) %>%
-  left_join(unique(gludrugs)) %>%
+  left_join(gludrugs) %>%
   left_join(hba1c[,c('patient_num','start_date','medhba1c','vfhba1c')]) %>%
   fill(medhba1c,vfhba1c,FRAIL6MO,FRAIL12MO,FRAIL24MO) %>%
-  select(!any_of(idfields));
+  select(!any_of(idfields)) %>%
+  # this is the fix for missing CohortFactor
+  subset(between(start_month,gludrugs_begin,gludrugs_end));
 dat3 <- select(dat2,!any_of(json_cols));
 
 message('Saving full data as ',savename);
